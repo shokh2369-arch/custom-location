@@ -1,17 +1,38 @@
-# Telegram Mini App — Pick Destination
+# Custom Location — Telegram Mini App (Frontend)
 
-This is a Telegram Mini App page that lets a rider pick a custom destination on a map, then returns the payload back to the bot via `Telegram.WebApp.sendData(...)`.
+“Custom Location” is a Telegram Mini App page that lets a rider pick a destination on a map (move the map under a fixed center pin), reverse‑geocodes it to an address, and returns the selection to the bot via `Telegram.WebApp.sendData(...)`.
 
-## Page
+## What you get
 
-- **Picker page**: `/pick-location.html`
-- **Query params**:
-  - `mode=drop` (reserved; currently only drop mode is implemented)
-  - `pickup_lat` / `pickup_lng` (optional): map default center
+- **Full‑screen map** (Leaflet + OpenStreetMap tiles)
+- **Center pin UX** (pin stays in the center, user pans the map)
+- **Reverse geocoding** via OpenStreetMap Nominatim (HTTPS)
+- **Telegram Mini App integration**:
+  - `ready()` + `expand()` on load
+  - `sendData()` + `close()` on confirm
+- **Uzbek (Cyrillic) UI**: “Манзилни танланг”
+- **Mobile safe-areas** + iOS Telegram viewport height handling
 
-## Output (to bot)
+## URL / Route
 
-On confirm, the page sends a JSON string via Telegram WebApp:
+The picker is a dedicated HTML entrypoint:
+
+- **`/pick-location.html`**
+
+Query params:
+
+- `mode=drop` (reserved; currently only “drop” is used)
+- `pickup_lat` / `pickup_lng` (optional): initial center, typically pickup coordinates
+
+Example:
+
+```text
+https://custom-location.vercel.app/pick-location.html?mode=drop&pickup_lat=41.311081&pickup_lng=69.240562
+```
+
+## Data sent back to the bot (IMPORTANT)
+
+On confirm, the Mini App sends a **JSON string**:
 
 ```json
 {"lat": 41.311081, "lng": 69.240562, "name": "Optional label"}
@@ -23,57 +44,83 @@ Exact format:
 {"lat": <number>, "lng": <number>, "name": "<optional label>"}
 ```
 
+Notes:
+
+- `name` comes from reverse geocoding (may be empty if address resolution fails).
+- Telegram delivers this payload to the bot as a **`web_app_data`** message.
+
 ## Local development
+
+Install and run:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173/pick-location.html?mode=drop`.
+Open:
 
-## Deploy (HTTPS)
+- `http://localhost:5173/pick-location.html?mode=drop`
 
-Deploy to any static host that supports HTTPS (Vercel/Netlify/Cloudflare Pages/etc). Build output is in `dist/`.
+## Build
 
 ```bash
 npm run build
 ```
 
-### Vercel
+Output is in `dist/`.
+
+## Deploy (HTTPS)
+
+You must host on **HTTPS** (Telegram requirement). This project includes configs for Vercel and Netlify.
+
+### Deploy to Vercel
 
 - **Build command**: `npm run build`
 - **Output directory**: `dist`
-- After deploy, your picker URL will be:
+- Picker URL after deploy:
   - `https://<your-vercel-domain>/pick-location.html`
 
-### Netlify
+### Deploy to Netlify
 
 - **Build command**: `npm run build`
 - **Publish directory**: `dist`
 
-## Telegram bot setup
+## Telegram bot setup (BotFather)
 
-- **Set WebApp URL** in BotFather (or your bot admin UI) to your deployed HTTPS origin, for example:
-  - `https://your-miniapp.example.com/pick-location.html`
-- Alternatively, if you configure WebApp URL as the site origin, your backend can open:
-  - `WEBAPP_URL + "/pick-location.html?..."`
+Set the bot’s WebApp URL to your deployed picker page:
+
+- `https://<your-domain>/pick-location.html`
 
 ## Backend integration (`shokh2369-arch/taxi`)
 
-When rider chooses **Custom location**, open the mini app using:
+### Render env var
 
-```text
-WEBAPP_URL + "/pick-location.html?mode=drop&pickup_lat=<lat>&pickup_lng=<lng>"
-```
-
-Backend env var (Render or similar):
+Set **one of** these env vars:
 
 - `RIDER_PICKER_WEBAPP_URL=https://custom-location.vercel.app`
 - (fallback) `CUSTOM_LOCATION_WEBAPP_URL=https://custom-location.vercel.app`
 
-When the user confirms, Telegram will deliver the data back to the bot as a `web_app_data` message. Your backend must:
+Tip: prefer **no trailing slash**.
+
+### How backend should open the Mini App
+
+Backend opens:
+
+```text
+RIDER_PICKER_WEBAPP_URL + "/pick-location.html?mode=drop&pickup_lat=<lat>&pickup_lng=<lng>"
+```
+
+### Backend must handle result
+
+Telegram returns the result as `web_app_data`:
 
 - **Handle `web_app_data` updates**
-- **Parse the JSON payload exactly** and expect `{lat,lng,name}`
+- **Parse JSON exactly** and expect `{lat,lng,name}`
+
+## Troubleshooting
+
+- **iOS shows empty/blurred space at bottom**: this project sets `--app-height` based on Telegram viewport stable height and updates on `viewportChanged`.
+- **Confirm does nothing**: verify the Mini App is opened from a Telegram WebApp button (not a normal link), and confirm backend is reading `web_app_data`.
+
 
