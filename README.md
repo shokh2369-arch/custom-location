@@ -59,13 +59,18 @@ npm run build
 - Alternatively, if you configure WebApp URL as the site origin, your backend can open:
   - `WEBAPP_URL + "/pick-location.html?..."`
 
-## Backend integration (taxi-mvp)
+## Backend integration (`shokh2369-arch/taxi`)
 
 When rider chooses **Custom location**, open the mini app using:
 
 ```text
 WEBAPP_URL + "/pick-location.html?mode=drop&pickup_lat=<lat>&pickup_lng=<lng>"
 ```
+
+Backend env var (Render or similar):
+
+- `RIDER_PICKER_WEBAPP_URL=https://custom-location.vercel.app`
+- (fallback) `CUSTOM_LOCATION_WEBAPP_URL=https://custom-location.vercel.app`
 
 When the user confirms, Telegram will deliver the data back to the bot as a `web_app_data` message. Your backend must:
 
