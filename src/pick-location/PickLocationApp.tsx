@@ -246,8 +246,21 @@ export function PickLocationApp() {
     }
     try {
       wa.sendData(json)
-      wa.close()
+      // Some Telegram WebViews may drop the payload if we close immediately.
+      window.setTimeout(() => {
+        try {
+          wa.close()
+        } catch {
+          // ignore
+        }
+      }, 200)
     } catch {
+      // If Telegram send fails, fall back to an alert so we can still verify payload in-app.
+      try {
+        window.alert(json)
+      } catch {
+        // ignore
+      }
       setBanner(t.sendFailed)
       setIsSubmitting(false)
     }
