@@ -237,24 +237,31 @@ export function PickLocationApp() {
     }
 
     const json = JSON.stringify(payload)
-    const wa = getTelegram()
-    if (!wa || typeof wa.sendData !== 'function') {
-      // Outside Telegram (or Telegram object not injected) → required browser/testing fallback.
+
+    const injected = getTelegram()
+    const sdk = getSDKTelegram()
+    const canSendInjected = !!injected && typeof injected.sendData === 'function'
+    const canSendSDK = !!sdk && typeof sdk.sendData === 'function'
+
+    if (!canSendInjected && !canSendSDK) {
       window.alert(json)
       setBanner(t.openInTelegram)
       setIsSubmitting(false)
       return
     }
+
     try {
-      wa.sendData(json)
+      // Try both injected and SDK wrappers (some webviews behave differently).
+      if (canSendInjected) injected!.sendData(json)
+      if (!canSendInjected && canSendSDK) sdk.sendData(json)
       // Some Telegram WebViews may drop the payload if we close immediately.
       window.setTimeout(() => {
         try {
-          wa.close()
+          ;(injected ?? sdk).close()
         } catch {
           // ignore
         }
-      }, 200)
+      }, 800)
     } catch {
       // If Telegram send fails, fall back to an alert so we can still verify payload in-app.
       try {
