@@ -18,8 +18,8 @@ export function getTelegram(): TelegramWebApp | null {
   return tg ?? null
 }
 
-export function getActiveTelegram(): TelegramWebApp | null {
-  // Prefer injected object when available, fallback to SDK wrapper.
-  return getTelegram() ?? (WebApp as unknown as TelegramWebApp)
+export function getSDKTelegram(): TelegramWebApp {
+  return WebApp as unknown as TelegramWebApp
 }
+
 

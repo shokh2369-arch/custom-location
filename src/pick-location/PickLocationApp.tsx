@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { LatLngLiteral } from 'leaflet'
-import { getActiveTelegram, getTelegram } from './lib/telegram'
+import { getSDKTelegram, getTelegram } from './lib/telegram'
 
 type PickedLocationPayload = {
   lat: number
@@ -139,7 +139,7 @@ export function PickLocationApp() {
   const reverseDebounceRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const wa = getActiveTelegram()
+    const wa = getSDKTelegram()
     if (!wa) return
     try {
       wa.ready()
@@ -153,18 +153,18 @@ export function PickLocationApp() {
     // iOS Telegram WebView can report inconsistent CSS vh; prefer Telegram viewport height.
     const setAppHeight = () => {
       let h = window.innerHeight
-      const stable = getActiveTelegram()?.viewportStableHeight
+      const stable = getTelegram()?.viewportStableHeight ?? getSDKTelegram()?.viewportStableHeight
       if (typeof stable === 'number' && stable > 0) h = stable
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
     window.addEventListener('resize', setAppHeight)
-    getActiveTelegram()?.onEvent?.('viewportChanged', setAppHeight)
+    getSDKTelegram()?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
       window.removeEventListener('resize', setAppHeight)
-      getActiveTelegram()?.offEvent?.('viewportChanged', setAppHeight)
+      getSDKTelegram()?.offEvent?.('viewportChanged', setAppHeight)
     }
   }, [])
 
@@ -237,10 +237,11 @@ export function PickLocationApp() {
     }
 
     const json = JSON.stringify(payload)
-    const wa = getActiveTelegram()
-    if (!wa) {
-      // Browser/dev fallback (required): allow testing via alert.
+    const wa = getTelegram()
+    if (!wa || typeof wa.sendData !== 'function') {
+      // Outside Telegram (or Telegram object not injected) → required browser/testing fallback.
       window.alert(json)
+      setBanner(t.openInTelegram)
       setIsSubmitting(false)
       return
     }
