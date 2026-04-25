@@ -1,7 +1,21 @@
-import WebApp from '@twa-dev/sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { LatLngLiteral } from 'leaflet'
+
+type TelegramWebApp = {
+	ready: () => void
+	expand: () => void
+	close: () => void
+	sendData: (data: string) => void
+	onEvent: (eventType: string, handler: () => void) => void
+	offEvent: (eventType: string, handler: () => void) => void
+	viewportStableHeight?: number
+}
+
+function getTelegramWebApp(): TelegramWebApp | null {
+	const tg = (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp
+	return tg ?? null
+}
 
 type PickedLocationPayload = {
   lat: number
@@ -92,8 +106,12 @@ export function PickLocationApp() {
       geoUnavailable: 'Геолокация мавжуд эмас. Тошкент маркази танланди.',
       geoDenied: 'Жойлашув рухсати берилмади. Тошкент маркази танланди.',
       reverseFailed: 'Бу нуқта учун манзилни аниқлаб бўлмади.',
+      openInTelegram: 'Иловани Telegram ичида очинг.',
+      sendFailed: 'Манзилни юбориб бўлмади. Илтимос қайта уриниб кўринг.',
     }
   }, [])
+
+  const tg = useMemo(() => getTelegramWebApp(), [])
 
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const pickupLat = parseNumber(params.get('pickup_lat'))
@@ -115,44 +133,33 @@ export function PickLocationApp() {
   const reverseAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    if (!tg) return
     try {
-      WebApp.ready()
-      WebApp.expand()
+      tg.ready()
+      tg.expand()
     } catch {
-      // Running outside Telegram WebView is allowed for local development.
+      // ignore
     }
-  }, [])
+  }, [tg])
 
   useEffect(() => {
     // iOS Telegram WebView can report inconsistent CSS vh; prefer Telegram viewport height.
     const setAppHeight = () => {
       let h = window.innerHeight
-      try {
-        const stable = WebApp.viewportStableHeight
-        if (typeof stable === 'number' && stable > 0) h = stable
-      } catch {
-        // ignore
-      }
+      const stable = tg?.viewportStableHeight
+      if (typeof stable === 'number' && stable > 0) h = stable
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
     window.addEventListener('resize', setAppHeight)
-    try {
-      WebApp.onEvent('viewportChanged', setAppHeight)
-    } catch {
-      // ignore outside Telegram
-    }
+    tg?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
       window.removeEventListener('resize', setAppHeight)
-      try {
-        WebApp.offEvent('viewportChanged', setAppHeight)
-      } catch {
-        // ignore
-      }
+      tg?.offEvent?.('viewportChanged', setAppHeight)
     }
-  }, [])
+  }, [tg])
 
   useEffect(() => {
     if (initialCenter) return
@@ -210,12 +217,15 @@ export function PickLocationApp() {
     }
 
     const json = JSON.stringify(payload)
+    if (!tg) {
+      setBanner(t.openInTelegram)
+      return
+    }
     try {
-      WebApp.sendData(json)
-      WebApp.close()
+      tg.sendData(json)
+      tg.close()
     } catch {
-      // Local dev fallback: show payload to copy.
-      window.alert(json)
+      setBanner(t.sendFailed)
     }
   }
 
