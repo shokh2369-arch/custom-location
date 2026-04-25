@@ -124,6 +124,37 @@ export function PickLocationApp() {
   }, [])
 
   useEffect(() => {
+    // iOS Telegram WebView can report inconsistent CSS vh; prefer Telegram viewport height.
+    const setAppHeight = () => {
+      let h = window.innerHeight
+      try {
+        const stable = WebApp.viewportStableHeight
+        if (typeof stable === 'number' && stable > 0) h = stable
+      } catch {
+        // ignore
+      }
+      document.documentElement.style.setProperty('--app-height', `${h}px`)
+    }
+
+    setAppHeight()
+    window.addEventListener('resize', setAppHeight)
+    try {
+      WebApp.onEvent('viewportChanged', setAppHeight)
+    } catch {
+      // ignore outside Telegram
+    }
+
+    return () => {
+      window.removeEventListener('resize', setAppHeight)
+      try {
+        WebApp.offEvent('viewportChanged', setAppHeight)
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     if (initialCenter) return
 
     if (!('geolocation' in navigator)) {

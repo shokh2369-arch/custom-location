@@ -19,22 +19,23 @@
 
 html,
 body {
-  height: 100%;
+  height: var(--app-height, 100%);
 }
 
 body {
   margin: 0;
   background: #000;
   color: var(--text);
+  overflow: hidden;
 }
 
 #root {
-  height: 100%;
+  height: var(--app-height, 100%);
 }
 
 .pl-root {
   position: relative;
-  height: 100%;
+  height: var(--app-height, 100%);
   overflow: hidden;
   background: var(--bg);
 }
