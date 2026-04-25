@@ -1,3 +1,4 @@
+import WebApp from '@twa-dev/sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { LatLngLiteral } from 'leaflet'
@@ -15,6 +16,11 @@ type TelegramWebApp = {
 function getTelegramWebApp(): TelegramWebApp | null {
 	const tg = (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp
 	return tg ?? null
+}
+
+function getActiveWebApp(): TelegramWebApp | null {
+	// Prefer the native injected object, but fall back to SDK wrapper.
+	return getTelegramWebApp() ?? ((WebApp as unknown as TelegramWebApp) || null)
 }
 
 type PickedLocationPayload = {
@@ -111,7 +117,7 @@ export function PickLocationApp() {
     }
   }, [])
 
-  const tg = useMemo(() => getTelegramWebApp(), [])
+  const tg = useMemo(() => getActiveWebApp(), [])
 
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const pickupLat = parseNumber(params.get('pickup_lat'))
@@ -133,10 +139,11 @@ export function PickLocationApp() {
   const reverseAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (!tg) return
+    const wa = getActiveWebApp()
+    if (!wa) return
     try {
-      tg.ready()
-      tg.expand()
+      wa.ready()
+      wa.expand()
     } catch {
       // ignore
     }
@@ -146,18 +153,18 @@ export function PickLocationApp() {
     // iOS Telegram WebView can report inconsistent CSS vh; prefer Telegram viewport height.
     const setAppHeight = () => {
       let h = window.innerHeight
-      const stable = tg?.viewportStableHeight
+      const stable = getActiveWebApp()?.viewportStableHeight
       if (typeof stable === 'number' && stable > 0) h = stable
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
     window.addEventListener('resize', setAppHeight)
-    tg?.onEvent?.('viewportChanged', setAppHeight)
+    getActiveWebApp()?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
       window.removeEventListener('resize', setAppHeight)
-      tg?.offEvent?.('viewportChanged', setAppHeight)
+      getActiveWebApp()?.offEvent?.('viewportChanged', setAppHeight)
     }
   }, [tg])
 
@@ -217,13 +224,14 @@ export function PickLocationApp() {
     }
 
     const json = JSON.stringify(payload)
-    if (!tg) {
+    const wa = getActiveWebApp()
+    if (!wa) {
       setBanner(t.openInTelegram)
       return
     }
     try {
-      tg.sendData(json)
-      tg.close()
+      wa.sendData(json)
+      wa.close()
     } catch {
       setBanner(t.sendFailed)
     }
