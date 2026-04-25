@@ -1,27 +1,7 @@
-import WebApp from '@twa-dev/sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import type { LatLngLiteral } from 'leaflet'
-
-type TelegramWebApp = {
-	ready: () => void
-	expand: () => void
-	close: () => void
-	sendData: (data: string) => void
-	onEvent: (eventType: string, handler: () => void) => void
-	offEvent: (eventType: string, handler: () => void) => void
-	viewportStableHeight?: number
-}
-
-function getTelegramWebApp(): TelegramWebApp | null {
-	const tg = (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp
-	return tg ?? null
-}
-
-function getActiveWebApp(): TelegramWebApp | null {
-	// Prefer the native injected object, but fall back to SDK wrapper.
-	return getTelegramWebApp() ?? ((WebApp as unknown as TelegramWebApp) || null)
-}
+import { getActiveTelegram, getTelegram } from './lib/telegram'
 
 type PickedLocationPayload = {
   lat: number
@@ -45,6 +25,14 @@ function parseNumber(v: string | null): number | null {
 function clampDecimals(n: number, decimals = 6): number {
   const p = 10 ** decimals
   return Math.round(n * p) / p
+}
+
+function shortLabelFromReverse(r: NominatimReverse): string {
+  const name = (r.name ?? '').trim()
+  if (name) return name
+  const dn = (r.display_name ?? '').trim()
+  if (!dn) return ''
+  return dn.split(',')[0]?.trim() ?? dn
 }
 
 async function nominatimReverse(
@@ -79,7 +67,16 @@ function MapClickAndDrag({
 }: {
   onCenterChange: (pos: LatLngLiteral) => void
 }) {
+  const lastEmitRef = useRef<number>(0)
   useMapEvents({
+    move(e) {
+      const now = Date.now()
+      if (now - lastEmitRef.current < 120) return
+      lastEmitRef.current = now
+      const map = e.target
+      const c = map.getCenter()
+      onCenterChange({ lat: c.lat, lng: c.lng })
+    },
     moveend(e) {
       const map = e.target
       const c = map.getCenter()
@@ -106,18 +103,18 @@ export function PickLocationApp() {
       loading: 'Юкланмоқда…',
       selectedPlace: 'Танланган жой',
       confirm: '✅ Манзилни тасдиқлаш',
-      resolving: 'Манзил аниқланмоқда…',
+      searching: 'Манзил қидирилмоқда…',
       hintAdjust: 'Созлаш учун маркерни суринг ёки харитани босинг',
       hintPick: 'Танлаш учун харитани босинг ёки маркерни суринг',
       geoUnavailable: 'Геолокация мавжуд эмас. Тошкент маркази танланди.',
       geoDenied: 'Жойлашув рухсати берилмади. Тошкент маркази танланди.',
-      reverseFailed: 'Бу нуқта учун манзилни аниқлаб бўлмади.',
+      reverseFailed: 'Манзил топилмади.',
       openInTelegram: 'Иловани Telegram ичида очинг.',
       sendFailed: 'Манзилни юбориб бўлмади. Илтимос қайта уриниб кўринг.',
     }
   }, [])
 
-  const tg = useMemo(() => getActiveWebApp(), [])
+  const tgPresent = useMemo(() => !!getTelegram(), [])
 
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const pickupLat = parseNumber(params.get('pickup_lat'))
@@ -130,16 +127,19 @@ export function PickLocationApp() {
   const [center, setCenter] = useState<LatLngLiteral>(initialCenter ?? TASHKENT_CENTER)
   const [mapReady, setMapReady] = useState(false)
 
-  const [label, setLabel] = useState<string>('')
+  const [shortLabel, setShortLabel] = useState<string>('')
+  const [fullAddress, setFullAddress] = useState<string>('')
   const [reverseLoading, setReverseLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const [banner, setBanner] = useState<string>('')
   const [blockingLoading, setBlockingLoading] = useState<boolean>(false)
 
   const reverseAbortRef = useRef<AbortController | null>(null)
+  const reverseDebounceRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const wa = getActiveWebApp()
+    const wa = getActiveTelegram()
     if (!wa) return
     try {
       wa.ready()
@@ -147,26 +147,26 @@ export function PickLocationApp() {
     } catch {
       // ignore
     }
-  }, [tg])
+  }, [])
 
   useEffect(() => {
     // iOS Telegram WebView can report inconsistent CSS vh; prefer Telegram viewport height.
     const setAppHeight = () => {
       let h = window.innerHeight
-      const stable = getActiveWebApp()?.viewportStableHeight
+      const stable = getActiveTelegram()?.viewportStableHeight
       if (typeof stable === 'number' && stable > 0) h = stable
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
     window.addEventListener('resize', setAppHeight)
-    getActiveWebApp()?.onEvent?.('viewportChanged', setAppHeight)
+    getActiveTelegram()?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
       window.removeEventListener('resize', setAppHeight)
-      getActiveWebApp()?.offEvent?.('viewportChanged', setAppHeight)
+      getActiveTelegram()?.offEvent?.('viewportChanged', setAppHeight)
     }
-  }, [tg])
+  }, [])
 
   useEffect(() => {
     if (initialCenter) return
@@ -192,41 +192,56 @@ export function PickLocationApp() {
   }, [initialCenter, t.geoDenied, t.geoUnavailable])
 
   useEffect(() => {
-    // Reverse geocode when map center changes (center pin UX).
+    // Reverse geocode when map center changes (debounced while panning).
+    if (reverseDebounceRef.current) window.clearTimeout(reverseDebounceRef.current)
     reverseAbortRef.current?.abort()
-    const ac = new AbortController()
-    reverseAbortRef.current = ac
-
     setReverseLoading(true)
     setBanner('')
-    void (async () => {
-      try {
-        const data = await nominatimReverse(center.lat, center.lng, ac.signal)
-        const nextLabel = (data.name || data.display_name || '').trim()
-        setLabel(nextLabel)
-      } catch {
-        if (ac.signal.aborted) return
-        setLabel('')
-        setBanner(t.reverseFailed)
-      } finally {
-        if (!ac.signal.aborted) setReverseLoading(false)
-      }
-    })()
 
-    return () => ac.abort()
+    const tid = window.setTimeout(() => {
+      const ac = new AbortController()
+      reverseAbortRef.current = ac
+      void (async () => {
+        try {
+          const data = await nominatimReverse(center.lat, center.lng, ac.signal)
+          const s = shortLabelFromReverse(data)
+          const full = (data.display_name ?? '').trim()
+          setShortLabel(s)
+          setFullAddress(full)
+        } catch {
+          if (ac.signal.aborted) return
+          setShortLabel('')
+          setFullAddress('')
+          setBanner(t.reverseFailed)
+        } finally {
+          if (!ac.signal.aborted) setReverseLoading(false)
+        }
+      })()
+    }, 600)
+
+    reverseDebounceRef.current = tid
+    return () => {
+      window.clearTimeout(tid)
+      reverseAbortRef.current?.abort()
+    }
   }, [center.lat, center.lng, t.reverseFailed])
 
   function onConfirm() {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
     const payload: PickedLocationPayload = {
       lat: clampDecimals(center.lat),
       lng: clampDecimals(center.lng),
-      name: label?.trim() || undefined,
+      name: shortLabel?.trim() || undefined,
     }
 
     const json = JSON.stringify(payload)
-    const wa = getActiveWebApp()
+    const wa = getActiveTelegram()
     if (!wa) {
-      setBanner(t.openInTelegram)
+      // Browser/dev fallback (required): allow testing via alert.
+      window.alert(json)
+      setIsSubmitting(false)
       return
     }
     try {
@@ -234,14 +249,15 @@ export function PickLocationApp() {
       wa.close()
     } catch {
       setBanner(t.sendFailed)
+      setIsSubmitting(false)
     }
   }
 
   const hint = useMemo(() => {
-    if (reverseLoading) return t.resolving
-    if (label) return t.hintAdjust
+    if (reverseLoading) return t.searching
+    if (shortLabel || fullAddress) return t.hintAdjust
     return t.hintPick
-  }, [label, reverseLoading, t.hintAdjust, t.hintPick, t.resolving])
+  }, [fullAddress, reverseLoading, shortLabel, t.hintAdjust, t.hintPick, t.searching])
 
   return (
     <div className="pl-root">
@@ -274,6 +290,7 @@ export function PickLocationApp() {
             <div className="pl-title">{t.title}</div>
             <div className="pl-pill">{mapReady ? t.mapReady : t.loading}</div>
           </div>
+          {!tgPresent && <div className="pl-banner pl-banner-info">{t.openInTelegram}</div>}
           {!!banner && <div className="pl-banner">{banner}</div>}
         </div>
       </div>
@@ -284,8 +301,13 @@ export function PickLocationApp() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="pl-label">{t.selectedPlace}</div>
               <div className="pl-value" style={{ wordBreak: 'break-word' }}>
-                {label || hint}
+                {shortLabel || hint}
               </div>
+              {!!fullAddress && (
+                <div className="pl-address" style={{ wordBreak: 'break-word' }}>
+                  {fullAddress}
+                </div>
+              )}
             </div>
           </div>
 
@@ -294,7 +316,7 @@ export function PickLocationApp() {
               type="button"
               className="pl-btn pl-btn-primary"
               onClick={onConfirm}
-              disabled={blockingLoading}
+              disabled={blockingLoading || isSubmitting}
             >
               {t.confirm}
             </button>

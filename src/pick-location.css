@@ -219,6 +219,18 @@ body {
   font-size: 12px;
 }
 
+.pl-banner-info {
+  border: 1px solid rgba(47, 125, 255, 0.35);
+  background: rgba(47, 125, 255, 0.12);
+}
+
+.pl-address {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
 .pl-loading {
   position: absolute;
   inset: 0;
