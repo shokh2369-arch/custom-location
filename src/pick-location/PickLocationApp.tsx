@@ -111,6 +111,7 @@ export function PickLocationApp() {
       reverseFailed: 'Манзил топилмади.',
       openInTelegram: 'Иловани Telegram ичида очинг.',
       sendFailed: 'Манзилни юбориб бўлмади. Илтимос қайта уриниб кўринг.',
+      sentOk: 'Юборилди ✅ (debug)',
     }
   }, [])
 
@@ -119,6 +120,7 @@ export function PickLocationApp() {
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const pickupLat = parseNumber(params.get('pickup_lat'))
   const pickupLng = parseNumber(params.get('pickup_lng'))
+  const debugMode = params.get('debug') === '1'
 
   const initialCenter = useMemo<LatLngLiteral | null>(() => {
     return pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng } : null
@@ -254,6 +256,11 @@ export function PickLocationApp() {
       // Try both injected and SDK wrappers (some webviews behave differently).
       if (canSendInjected) injected!.sendData(json)
       if (!canSendInjected && canSendSDK) sdk.sendData(json)
+      if (debugMode) {
+        setBanner(t.sentOk)
+        setIsSubmitting(false)
+        return
+      }
       // Some Telegram WebViews may drop the payload if we close immediately.
       window.setTimeout(() => {
         try {
