@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         'pick-location': resolve(__dirname, 'pick-location.html'),
+        'pick-destination': resolve(__dirname, 'pick-destination.html'),
       },
     },
   },

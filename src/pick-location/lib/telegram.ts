@@ -8,6 +8,7 @@ export type TelegramWebApp = {
   onEvent?: (eventType: string, handler: () => void) => void
   offEvent?: (eventType: string, handler: () => void) => void
   viewportStableHeight?: number
+  initData?: string
   initDataUnsafe?: {
     user?: { id?: number }
   }
