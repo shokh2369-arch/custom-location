@@ -58,6 +58,11 @@ npm install
 npm run dev
 ```
 
+API base URL (for destination confirm fallback):
+
+- Copy `.env.example` → `.env`
+- Set `VITE_API_BASE_URL` to your backend, e.g. `https://taxi-2r2j.onrender.com`
+
 Open:
 
 - `http://localhost:5173/pick-location.html?mode=drop`

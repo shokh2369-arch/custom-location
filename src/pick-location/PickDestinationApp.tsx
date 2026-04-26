@@ -153,7 +153,11 @@ async function postDestination(body: {
   name: string
   init_data: string
 }): Promise<{ ok?: boolean; estimated_price?: number }> {
-  const res = await fetch('/rider/request/destination', {
+  const apiBaseRaw = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+  const apiBase = apiBaseRaw.trim().replace(/\/+$/, '')
+  const url = apiBase ? `${apiBase}/rider/request/destination` : '/rider/request/destination'
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
