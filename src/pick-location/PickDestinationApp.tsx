@@ -246,15 +246,21 @@ export function PickDestinationApp() {
     const setAppHeight = () => {
       let h = window.innerHeight
       const stable = getTelegram()?.viewportStableHeight ?? getSDKTelegram()?.viewportStableHeight
-      if (typeof stable === 'number' && stable > 0) h = stable
+      if (typeof stable === 'number' && stable > 0) h = Math.max(h, stable)
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
+    const t1 = window.setTimeout(setAppHeight, 0)
+    const t2 = window.setTimeout(setAppHeight, 120)
+    const t3 = window.setTimeout(setAppHeight, 400)
     window.addEventListener('resize', setAppHeight)
     getSDKTelegram()?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+      window.clearTimeout(t3)
       window.removeEventListener('resize', setAppHeight)
       getSDKTelegram()?.offEvent?.('viewportChanged', setAppHeight)
     }

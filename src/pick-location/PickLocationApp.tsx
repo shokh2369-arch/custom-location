@@ -212,15 +212,24 @@ export function PickLocationApp() {
     const setAppHeight = () => {
       let h = window.innerHeight
       const stable = getTelegram()?.viewportStableHeight ?? getSDKTelegram()?.viewportStableHeight
-      if (typeof stable === 'number' && stable > 0) h = stable
+      // On first open, `viewportStableHeight` can be temporarily smaller than the real viewport,
+      // causing a blank area until reload. Never shrink below `window.innerHeight`.
+      if (typeof stable === 'number' && stable > 0) h = Math.max(h, stable)
       document.documentElement.style.setProperty('--app-height', `${h}px`)
     }
 
     setAppHeight()
+    // Extra passes for iOS Telegram WebView (layout settles after first paint).
+    const t1 = window.setTimeout(setAppHeight, 0)
+    const t2 = window.setTimeout(setAppHeight, 120)
+    const t3 = window.setTimeout(setAppHeight, 400)
     window.addEventListener('resize', setAppHeight)
     getSDKTelegram()?.onEvent?.('viewportChanged', setAppHeight)
 
     return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+      window.clearTimeout(t3)
       window.removeEventListener('resize', setAppHeight)
       getSDKTelegram()?.offEvent?.('viewportChanged', setAppHeight)
     }
