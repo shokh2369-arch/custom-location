@@ -6,7 +6,7 @@ import { getSDKTelegram, getTelegram } from './lib/telegram'
 type PickedLocationPayload = {
   lat: number
   lng: number
-  name?: string
+  name: string
 }
 
 type NominatimReverse = {
@@ -20,6 +20,10 @@ function parseNumber(v: string | null): number | null {
   if (!v) return null
   const n = Number(v)
   return Number.isFinite(n) ? n : null
+}
+
+function isValidLatLng(lat: number, lng: number): boolean {
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
 }
 
 function clampDecimals(n: number, decimals = 6): number {
@@ -94,6 +98,56 @@ function MapViewUpdater({ center }: { center: LatLngLiteral }) {
   return null
 }
 
+function MapSizeFixer({ mapReady }: { mapReady: boolean }) {
+  const map = useMap()
+  const lastRef = useRef<number>(0)
+
+  useEffect(() => {
+    const bump = () => {
+      const now = Date.now()
+      if (now - lastRef.current < 120) return
+      lastRef.current = now
+      try {
+        map.invalidateSize({ animate: false })
+      } catch {
+        // ignore
+      }
+    }
+
+    // Telegram WebView + Leaflet sometimes needs multiple passes after layout settles.
+    const raf = window.requestAnimationFrame(bump)
+    const t1 = window.setTimeout(bump, 60)
+    const t2 = window.setTimeout(bump, 250)
+
+    window.addEventListener('resize', bump)
+    const sdk = getSDKTelegram()
+    sdk?.onEvent?.('viewportChanged', bump)
+
+    return () => {
+      window.cancelAnimationFrame(raf)
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+      window.removeEventListener('resize', bump)
+      sdk?.offEvent?.('viewportChanged', bump)
+    }
+  }, [map])
+
+  useEffect(() => {
+    if (!mapReady) return
+    // One more invalidate after Leaflet signals readiness.
+    const t = window.setTimeout(() => {
+      try {
+        map.invalidateSize({ animate: false })
+      } catch {
+        // ignore
+      }
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [map, mapReady])
+
+  return null
+}
+
 export function PickLocationApp() {
   const t = useMemo(() => {
     // Uzbek (Cyrillic) UI copy
@@ -123,7 +177,9 @@ export function PickLocationApp() {
   const debugMode = params.get('debug') === '1'
 
   const initialCenter = useMemo<LatLngLiteral | null>(() => {
-    return pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng } : null
+    if (pickupLat == null || pickupLng == null) return null
+    if (!isValidLatLng(pickupLat, pickupLng)) return null
+    return { lat: pickupLat, lng: pickupLng }
   }, [pickupLat, pickupLng])
 
   const [center, setCenter] = useState<LatLngLiteral>(initialCenter ?? TASHKENT_CENTER)
@@ -212,8 +268,6 @@ export function PickLocationApp() {
           setFullAddress(full)
         } catch {
           if (ac.signal.aborted) return
-          setShortLabel('')
-          setFullAddress('')
           setBanner(t.reverseFailed)
         } finally {
           if (!ac.signal.aborted) setReverseLoading(false)
@@ -232,10 +286,15 @@ export function PickLocationApp() {
     if (isSubmitting) return
     setIsSubmitting(true)
 
+    const lat = clampDecimals(center.lat)
+    const lng = clampDecimals(center.lng)
+    const label = shortLabel?.trim() || shortLabelFromReverse({ display_name: fullAddress }) || ''
+    const fallbackName = `${clampDecimals(lat, 5)}, ${clampDecimals(lng, 5)}`
+
     const payload: PickedLocationPayload = {
-      lat: clampDecimals(center.lat),
-      lng: clampDecimals(center.lng),
-      name: shortLabel?.trim() || undefined,
+      lat,
+      lng,
+      name: label || fallbackName,
     }
 
     const json = JSON.stringify(payload)
@@ -298,6 +357,7 @@ export function PickLocationApp() {
           whenReady={() => setMapReady(true)}
         >
           <MapViewUpdater center={center} />
+          <MapSizeFixer mapReady={mapReady} />
           <TileLayer
             attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
